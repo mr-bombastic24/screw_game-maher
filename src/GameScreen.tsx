@@ -22,20 +22,8 @@ function cardInfo(card: CardData) {
   };
 }
 
-function safeGameMessage(round: number, phase: string, message: string): string {
-  if (round !== 3 || phase === 'result' || phase === 'setup') return message;
-  const messages: Record<string, string> = {
-    turn: 'جولة العمياني: كل كروتك مخفية. المس كومة السحب أو الرمي للعب.',
-    resolve_draw: 'الكارت المسحوب مخفي في العمياني؛ بدّله بكارت من يدك أو المسه لرميه.',
-    private_reveal: 'العمياني بيمنع معاينة كروتك أنت.',
-    effect_choice: 'اختار أحد خيارات الحركة.',
-    effect_select_target: 'اختار لاعباً من المقاعد المضيئة.',
-    effect_select_hand: 'اختار خانة من اليد من غير ما تشوف الكارت.',
-    heavy_choice: 'جرّب كارت مقفول من الجداد، أو المس الطاولة الفاضية لإنهاء الدور.',
-    look_swap_decision: 'الكارت المعاين مخفي لحد ما تضغط مطولاً عليه.',
-    khshaf_choice: 'اختار واحد من الأربعة المقفولين.',
-  };
-  return messages[phase] ?? 'جولة العمياني: أيديك مخفية طوال الجولة.';
+function safeGameMessage(_round: number, _phase: string, message: string): string {
+  return message;
 }
 
 function vibrate(pattern: number | number[] = 35) {
@@ -76,7 +64,7 @@ function SwipeToReady({ onReady }: { onReady: () => void }) {
   </div>;
 }
 
-function ScrewHoldButton({ disabled, onHold, hint }: { disabled: boolean; onHold: () => void; hint: string }) {
+function ScrewHoldButton({ disabled, onHold, hint, onBlocked }: { disabled: boolean; onHold: () => void; hint: string; onBlocked?: () => void }) {
   const [progress, setProgress] = useState(0);
   const press = useRef<{ started: number; interval: number; fired: boolean } | null>(null);
   const stop = () => {
@@ -86,7 +74,8 @@ function ScrewHoldButton({ disabled, onHold, hint }: { disabled: boolean; onHold
     press.current = null;
   };
   const start = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (disabled || press.current) return;
+    if (disabled) { onBlocked?.(); return; }
+    if (press.current) return;
     event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
     const active = { started: performance.now(), interval: 0, fired: false };
     active.interval = window.setInterval(() => {
@@ -102,38 +91,78 @@ function ScrewHoldButton({ disabled, onHold, hint }: { disabled: boolean; onHold
   };
   useEffect(() => () => { if (press.current) window.clearInterval(press.current.interval); }, []);
   useEffect(() => { if (disabled) setProgress(0); }, [disabled]);
-  return <button type="button" className={`g-screw ${disabled ? 'is-locked' : 'is-ready'}`} disabled={disabled} onPointerDown={start} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} onKeyDown={keyDown} style={{ '--hold': `${progress * 360}deg` } as React.CSSProperties} aria-label={disabled ? 'سكرو غير متاح بعد' : 'اضغط مطولاً لإعلان سكرو'}>
+  return <button type="button" className={`g-screw ${disabled ? 'is-locked' : 'is-ready'}`} aria-disabled={disabled} onPointerDown={start} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} onKeyDown={keyDown} style={{ '--hold': `${progress * 360}deg` } as React.CSSProperties} aria-label={disabled ? 'سكرو غير متاح بعد' : 'اضغط مطولاً لإعلان سكرو'}>
     <span className="g-screw__ring"><i /></span><b>سكرو</b><small>{hint}</small>
   </button>;
 }
 
-function MiniCard({ card, face, flipFrom, delay }: { card: CardData; face: boolean; flipFrom?: string; delay: number }) {
+function MiniCard({ card, face, flipFrom, delay, looked, idx }: { card: CardData; face: boolean; flipFrom?: string; delay: number; looked?: boolean; idx: number }) {
   const info = cardInfo(card);
-  return <span className="g-mini-slot" data-flip={card.id} data-flip-from={flipFrom} data-flip-delay={delay}>
+  return <span className={`g-mini-slot ${looked ? 'is-looked' : ''}`} style={{ '--i': idx } as React.CSSProperties} data-flip={card.id} data-flip-from={flipFrom} data-flip-delay={delay}>
     <span className={`g-mini ${face && info.definitionId ? 'is-face' : ''}`}>{face && info.definitionId ? <img src={assetUrl(`assets/cards/${info.definitionId}.webp`)} alt="" draggable={false} /> : <i />}</span>
+    {looked && <span className="g-eye" aria-hidden="true">👁</span>}
   </span>;
 }
 
-function Opponent({ player, index, order, active, targetable, timerAngle, timerSeconds, timerLabel, revealed, dealFrom, onPick, cols }: {
-  player: PlayerView; index: number; order: number; active: boolean; targetable: boolean; timerAngle: number; timerSeconds: number; timerLabel: string;
-  revealed: (card: CardData) => boolean; dealFrom: boolean; onPick: () => void; cols: number;
+function Opponent({ player, order, active, targetable, timerAngle, timerSeconds, timerLabel, revealed, dealFrom, onPick, cols, lookingIds, lookerName }: {
+  player: PlayerView; order: number; active: boolean; targetable: boolean; timerAngle: number; timerSeconds: number; timerLabel: string;
+  revealed: (card: CardData) => boolean; dealFrom: boolean; onPick: () => void; cols: number; lookingIds: string[]; lookerName: string;
 }) {
+  const looked = lookingIds.length > 0 && player.hand.some((card) => lookingIds.includes(card.id));
   return (
-    <button type="button" className={`g-opp ${active ? 'is-active' : ''} ${targetable ? 'is-target' : ''} ${player.connected ? '' : 'is-offline'}`}
-      disabled={!targetable} onClick={targetable ? onPick : undefined} style={{ '--ring': `${timerAngle}deg`, '--cols': cols } as React.CSSProperties}
+    <button type="button" className={`g-opp ${active ? 'is-active' : ''} ${targetable ? 'is-target' : ''} ${looked ? 'has-looked' : ''} ${player.hand.length > 4 ? 'is-many' : ''} ${player.connected ? '' : 'is-offline'}`}
+      disabled={!targetable} onClick={targetable ? onPick : undefined} style={{ '--ring': `${timerAngle}deg`, '--cols': cols, '--n': player.hand.length } as React.CSSProperties}
       aria-label={`${player.name}، ${player.hand.length} كروت${targetable ? '، اختره' : ''}`}>
-      <span className="g-opp__top">
-        <span className="g-opp__avatar" style={{ '--ring': `${timerAngle}deg` } as React.CSSProperties}><b>{initials(player.name)}</b></span>
-        <span className="g-opp__id">
+      <span className="g-opp__head">
+        <span className="g-opp__avatar"><b>{initials(player.name)}</b><em className="g-opp__count" aria-hidden="true">{player.hand.length}</em></span>
+        <span className="g-opp__name">
           <strong>{player.name}</strong>
-          <small>{player.connected ? `${player.hand.length} كروت` : 'غير متصل'}</small>
+          {!player.connected ? <small>غير متصل</small> : active ? <small className="g-opp__turn">{timerSeconds > 0 ? `${timerLabel} · ${timerSeconds}` : 'دوره'}</small> : <small>{player.hand.length} كروت</small>}
         </span>
         {active && timerSeconds > 0 && <span className={`g-opp__timer ${timerSeconds <= 5 ? 'is-urgent' : ''}`} title={timerLabel}>{timerSeconds}</span>}
       </span>
       <span className="g-opp__cards" aria-hidden="true">
-        {player.hand.map((card, slot) => <MiniCard key={card.id} card={card} face={revealed(card)} flipFrom={dealFrom ? 'stock' : undefined} delay={(order * 4 + slot) * 70} />)}
+        {player.hand.map((card, slot) => <MiniCard key={card.id} card={card} face={revealed(card)} looked={lookingIds.includes(card.id)} idx={slot} flipFrom={dealFrom ? 'stock' : undefined} delay={(order * 4 + slot) * 70} />)}
       </span>
+      {looked && <span className="g-opp__look">👁 بيعاين كارت</span>}
     </button>
+  );
+}
+
+const ROUND_BANNERS: Record<number, { title: string; sub: string }> = {
+  1: { title: 'الجولة الأولى', sub: 'عاين كارتين واحفظ مكانهم' },
+  2: { title: 'الجولة الثانية', sub: 'ركّز… الدورة بدأت' },
+  3: { title: 'جولة العمياني', sub: 'من غير معاينة أولية' },
+  4: { title: 'جولة الدابل', sub: 'النقط × ٢' },
+};
+
+function TableDecor() {
+  const corner = (suit: string) => <svg viewBox="0 0 60 60" aria-hidden="true"><path d="M4 56 V22 C4 12 12 4 22 4 H56" fill="none" stroke="url(#gold)" strokeWidth="1.6"/><path d="M10 56 V26 C10 17 17 10 26 10 H56" fill="none" stroke="url(#gold)" strokeWidth=".7" opacity=".7"/><circle cx="22" cy="22" r="9" fill="none" stroke="url(#gold)" strokeWidth="1"/><text x="22" y="27.5" textAnchor="middle" fontSize="15" fill="url(#gold)" fontFamily="Georgia, serif">{suit}</text></svg>;
+  // حافة فيشة بوكر: 12 شريط حوالين الدايرة
+  const chipStripes = Array.from({ length: 12 }, (_, i) => <rect key={i} x="95" y="8" width="10" height="16" rx="1.5" fill="url(#gold)" opacity=".9" transform={`rotate(${i * 30} 100 100)`} />);
+  return (
+    <div className="g-decor" aria-hidden="true">
+      <svg className="g-decor__defs" width="0" height="0"><defs><linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#fff0bd"/><stop offset=".45" stopColor="#d9b66f"/><stop offset="1" stopColor="#9a7436"/></linearGradient></defs></svg>
+      <span className="g-pattern" />
+      <span className="g-corner g-corner--tl">{corner('♠')}</span><span className="g-corner g-corner--tr">{corner('♥')}</span>
+      <span className="g-corner g-corner--bl">{corner('♣')}</span><span className="g-corner g-corner--br">{corner('♦')}</span>
+      <svg className="g-emblem" viewBox="0 0 200 200">
+        <g className="g-emblem__chip">
+          <circle cx="100" cy="100" r="96" fill="none" stroke="url(#gold)" strokeWidth="2.2"/>
+          {chipStripes}
+          <circle cx="100" cy="100" r="76" fill="none" stroke="url(#gold)" strokeWidth="1.6"/>
+          <circle cx="100" cy="100" r="72" fill="none" stroke="url(#gold)" strokeWidth=".6" strokeDasharray="1.5 3.5"/>
+        </g>
+        <circle cx="100" cy="100" r="52" fill="none" stroke="url(#gold)" strokeWidth="1.4"/>
+        <path d="M100 58 L142 100 L100 142 L58 100 Z" fill="none" stroke="url(#gold)" strokeWidth="1.3"/>
+        <path d="M100 68 L132 100 L100 132 L68 100 Z" fill="url(#gold)" opacity=".18"/>
+        <g fill="url(#gold)" fontFamily="Georgia, serif" textAnchor="middle">
+          <text x="100" y="118" fontSize="52">♠</text>
+          <text x="100" y="52" fontSize="15">♥</text><text x="100" y="157" fontSize="15" transform="rotate(180 100 150)">♣</text>
+          <text x="50" y="106" fontSize="15">♦</text><text x="150" y="106" fontSize="15">♦</text>
+        </g>
+      </svg>
+    </div>
   );
 }
 
@@ -168,6 +197,11 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
   const [soundOn, setSoundOn] = useState(() => { try { return localStorage.getItem('screwcard.soundOn') !== 'false'; } catch { return true; } });
   const [dealing, setDealing] = useState(() => !!game.dealt_at && Date.now() + snapshot.serverNow - Date.now() - game.dealt_at < 3000);
   const [shuffling, setShuffling] = useState(false);
+  const [roundBanner, setRoundBanner] = useState<number | null>(null);
+  const [fx, setFx] = useState<{ kind: 'block' | 'penalty'; text: string; key: number } | null>(null);
+  const [shake, setShake] = useState('');
+  const fxTimeoutRef = useRef<number | undefined>(undefined);
+  const shakeTimeoutRef = useRef<number | undefined>(undefined);
   const privateRevealStartedAtRef = useRef(0);
   const privateRevealTimeoutRef = useRef<number | undefined>(undefined);
   const victoryPlayedRef = useRef(false);
@@ -210,6 +244,8 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
   useEffect(() => () => {
     if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
     if (powerTimeoutRef.current) window.clearTimeout(powerTimeoutRef.current);
+    if (fxTimeoutRef.current) window.clearTimeout(fxTimeoutRef.current);
+    if (shakeTimeoutRef.current) window.clearTimeout(shakeTimeoutRef.current);
     if (privateRevealTimeoutRef.current) window.clearTimeout(privateRevealTimeoutRef.current);
   }, []);
   useEffect(() => { if (notice) showToast(notice, 2600); }, [notice]);
@@ -221,7 +257,7 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
     lastEventSeqRef.current = Math.max(...fresh.map((event) => event.seq));
     for (const event of fresh) {
       if (event.kind === 'power' && event.definition_id) {
-        const name = game.round_number === 3 ? 'خاصية خاصة' : CardCatalog.cardName({ id: '', definition_id: event.definition_id });
+        const name = CardCatalog.cardName({ id: '', definition_id: event.definition_id });
         setPowerBanner(`تفعيل ${name}`); setPowerKey((value) => value + 1);
         if (powerTimeoutRef.current) window.clearTimeout(powerTimeoutRef.current);
         powerTimeoutRef.current = window.setTimeout(() => setPowerBanner(''), 2100);
@@ -229,6 +265,14 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
         playGameSound(effectSound ?? CARD_LAND_SOUNDS[event.definition_id] ?? GAME_SOUNDS.land, effectSound ? 0.66 : 0.58);
       } else if (event.kind === 'land' && event.definition_id) {
         playGameSound(CARD_LAND_SOUNDS[event.definition_id] ?? GAME_SOUNDS.land, 0.58);
+        const fxKind = event.definition_id === 'block' ? 'block' : (event.definition_id === 'screw_red' || event.definition_id === 'plus_20') ? 'penalty' : null;
+        if (fxKind) {
+          const text = fxKind === 'block' ? 'بلوك!' : event.definition_id === 'screw_red' ? 'سكرو أحمر +٢٥' : 'عقوبة +٢٠';
+          setFx({ kind: fxKind, text, key: Date.now() });
+          if (fxTimeoutRef.current) window.clearTimeout(fxTimeoutRef.current);
+          fxTimeoutRef.current = window.setTimeout(() => setFx(null), 1700);
+          vibrate(fxKind === 'block' ? [40, 30, 80] : [30, 20, 30]);
+        }
       } else if (event.kind === 'toast' && event.text) showToast(event.text);
     }
   }, [snapshot.events]);
@@ -261,16 +305,22 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
   useEffect(() => {
     if (!game.dealt_at || Date.now() + clockOffset - game.dealt_at > 3500) return;
     const timeouts: number[] = [];
-    setDealing(true); setShuffling(true);
+    setDealing(true); setShuffling(true); setRoundBanner(game.round_number);
+    timeouts.push(window.setTimeout(() => setRoundBanner(null), 2900));
     playGameSound(GAME_SOUNDS.shuffle, 0.55);
     timeouts.push(window.setTimeout(() => setShuffling(false), 800));
     const cues = Math.min(12, game.players.length * 2);
     for (let i = 0; i < cues; i += 1) timeouts.push(window.setTimeout(() => playGameSound(GAME_SOUNDS.deal, 0.48), 600 + i * 150));
     timeouts.push(window.setTimeout(() => setDealing(false), 700 + game.players.length * 4 * 70 + 600));
-    return () => { timeouts.forEach((id) => window.clearTimeout(id)); setShuffling(false); setDealing(false); };
+    return () => { timeouts.forEach((id) => window.clearTimeout(id)); setShuffling(false); setDealing(false); setRoundBanner(null); };
   }, [game.dealt_at]);
 
   const act = (action: () => void) => { action(); setDraggingHand(false); setDraggingDrawn(false); };
+  const blocked = (area: string, text: string) => {
+    setShake(area); showToast(text, 2200); vibrate(18);
+    if (shakeTimeoutRef.current) window.clearTimeout(shakeTimeoutRef.current);
+    shakeTimeoutRef.current = window.setTimeout(() => setShake(''), 480);
+  };
 
   // ---------- قيم مشتقة ----------
   const isOpeningPeekStage = phase === 'initial_peek' || (phase === 'private_reveal' && game.pending_action === 'initial_peek_confirm');
@@ -290,7 +340,7 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
   const cols = opponents.length <= 3 ? Math.max(1, opponents.length) : opponents.length <= 6 ? 3 : 4;
   const targetable = useMemo(() => (phase === 'effect_select_target' && isActor ? game.player_ids_except_current : []), [phase, isActor, game.player_ids_except_current]);
   const cardSelectable = isActor && (phase === 'initial_peek' || phase === 'turn' || phase === 'resolve_draw' || phase === 'effect_select_hand');
-  const privateRevealBlind = roundNumber === 3 && game.private_reveal_owner_index === game.turn_index;
+  const privateRevealBlind = false;
   const isHeavyReveal = phase === 'private_reveal' && game.pending_action === 'heavy_reveal_finish';
 
   useEffect(() => {
@@ -303,7 +353,6 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
 
   const visibleHandCard = (playerIndex: number, card: CardData) => {
     if (phase === 'result') return true;
-    if (roundNumber === 3 && playerIndex === game.turn_index) return false;
     return game.is_publicly_revealed(playerIndex, card);
   };
 
@@ -388,7 +437,7 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
     privateRevealStartedAtRef.current = 0;
     setPrivateCardHeldId(null);
     if (game.phase !== 'private_reveal') return;
-    if (roundNumber !== 3 && cardId && game.pending_action === 'heavy_reveal_finish' && revealCards.length > 1) {
+    if (cardId && game.pending_action === 'heavy_reveal_finish' && revealCards.length > 1) {
       const viewed = Array.from(new Set([...seenPrivateRevealIds, cardId]));
       setSeenPrivateRevealIds(viewed);
       if (!revealCards.every((card) => viewed.includes(card.id))) return;
@@ -415,6 +464,7 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
     game.pending_action === 'take_only_card' ? `اختار كارتاً تديه إلى ${game.player_name(game.pending_target)}` :
     game.pending_action === 'look_swap_peek' || game.pending_action === 'peek_other_slot' ? `اختار كارتاً من إيد ${game.player_name(game.pending_target)} لمعاينته` :
     game.pending_action === 'peek_self' ? 'اختار كارتاً من يدك لمعاينته' :
+    game.pending_action === 'khshaf_swap' ? 'اختار كارتاً من إيدك تبدّله بكارت الخشاف' :
     game.pending_action === 'mesaharati_keep' ? 'اختار كارتاً ترميه واحتفظ بالمسحراتي' :
     game.pending_action === 'kaab_own' ? 'اختار كارتاً مختلفاً من يدك لمعاينته' :
     game.pending_action === 'kaab_all_slot' ? `اختار كارتاً من إيد ${game.player_name(game.kaab_player_index)}` :
@@ -422,6 +472,10 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
     game.pending_action === 'look_exchange_second_slot' ? `اختار كارتاً من إيد ${game.player_name(game.pending_target)}` : '';
 
   const stockDims = isActor && phase === 'turn';
+  const selectedSlotNow = Number(game.selected_hand_slot ?? -1);
+  const canBasra = isActor && phase === 'turn' && selectedSlotNow >= 0;
+  const basraHint = !isActor ? 'مش دورك' : phase === 'turn' ? (canBasra ? 'جرّب مطابقة' : 'حدّد كارت') : phase === 'resolve_draw' ? 'اختار كارت' : '—';
+  const lookedByOther = game.looking_by >= 0 && game.looking_by !== me && !viewingOther;
   const canControl = snapshot.hostCanBeReplaced;
 
   return (
@@ -430,7 +484,7 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
         <header className="g-top">
           <button className="g-icon" type="button" aria-label="القائمة" onClick={() => setMenuOpen(true)}>☰</button>
           <div className="g-top__title">
-            <strong>الجولة {roundNumber} من 4{roundNumber === 3 ? ' · العمياني' : roundNumber === 4 ? ' · الدابل' : ''}</strong>
+            <strong>الجولة {roundNumber} من 4{roundNumber === 3 ? ' · من غير معاينة' : roundNumber === 4 ? ' · الدابل' : ''}</strong>
             <span>غرفة <b dir="ltr">{snapshot.code}</b></span>
           </div>
           <button className={`g-icon ${soundOn ? 'is-on' : ''}`} type="button" aria-label="الصوت" aria-pressed={soundOn} onClick={() => setSoundOn((value) => !value)}>{soundOn ? '♪' : '✕'}</button>
@@ -442,17 +496,18 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
           {timerActive && <span className={`g-status__timer ${timeLeft <= 5 ? 'is-urgent' : ''}`} aria-label={`${timeLeft} ثانية`} style={{ '--ring': `${timerAngle}deg` } as React.CSSProperties}><b>{timeLeft}</b></span>}
         </div>
 
+        <div className={`g-arena ${shake === 'arena' ? 'is-shake' : ''} ${fx ? `has-fx-${fx.kind}` : ''}`}>
+        <div className="g-arena__felt" /><TableDecor />
         <section className={`g-opps g-opps--${opponents.length} ${cols === 4 ? 'g-opps--dense' : ''}`} aria-label="اللاعبين" style={{ '--cols': cols } as React.CSSProperties}>
           {opponents.map((index, order) => (
-            <Opponent key={players[index].id} player={players[index]} index={index} order={order + 1} cols={cols}
+            <Opponent key={players[index].id} player={players[index]} order={order + 1} cols={cols} lookingIds={game.looking_ids} lookerName={players[game.looking_by]?.name ?? ''}
               active={index === actorIndex && phase !== 'result'} targetable={targetable.includes(index)} timerAngle={index === actorIndex ? timerAngle : 0}
               timerSeconds={timerActive && index === actorIndex ? timeLeft : 0} timerLabel={timerLabel}
               revealed={(card) => visibleHandCard(index, card)} dealFrom={dealing} onPick={() => act(() => game.select_target(index))} />
           ))}
         </section>
 
-        <section className={`g-table ${draggingHand ? 'is-dragging-hand' : ''} ${draggingDrawn ? 'is-dragging-drawn' : ''}`} aria-label="الطاولة" onClick={finishHeavyByTableTap}>
-          <div className="g-table__felt" />
+        <section className={`g-table ${drawnCard && (phase === 'resolve_draw' || game.pending_action === 'khshaf_swap') ? 'has-drawn' : ''} ${draggingHand ? 'is-dragging-hand' : ''} ${draggingDrawn ? 'is-dragging-drawn' : ''}`} aria-label="الطاولة" onClick={finishHeavyByTableTap}>
           {powerBanner && <div className="g-power" key={powerKey} role="status"><span aria-hidden="true">✦</span> {powerBanner}</div>}
 
           <div className="g-piles">
@@ -466,7 +521,7 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
             <div className={`g-pile g-pile--discard ${stockDims ? 'is-actionable' : ''}`}>
               <div className="g-pile__stack">
                 {topDiscard && topDiscard.definition_id !== HIDDEN_DEFINITION
-                  ? <div className="g-slot g-slot--pile" data-flip={topDiscard.id}><Card id={topDiscard.id} definitionId={cardInfo(topDiscard).definitionId} name={cardInfo(topDiscard).name} hidden={false} selectable={stockDims} onClick={takeDiscard} className="g-pile__card" /></div>
+                  ? <div className={`g-slot g-slot--pile ${topDiscard.definition_id === 'block' ? 'is-block' : (topDiscard.definition_id === 'screw_red' || topDiscard.definition_id === 'plus_20') ? 'is-penalty' : ''}`} key={topDiscard.id} data-flip={topDiscard.id}><Card id={topDiscard.id} definitionId={cardInfo(topDiscard).definitionId} name={cardInfo(topDiscard).name} hidden={false} selectable={stockDims} onClick={takeDiscard} className="g-pile__card" /></div>
                   : <div className="g-pile__empty">—</div>}
               </div>
               <span className="g-pile__badge">{game.discard_pile.length}</span>
@@ -474,12 +529,19 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
             </div>
           </div>
 
-          <div className={`g-drawn ${drawnCard && phase === 'resolve_draw' ? 'has-card' : ''}`}>
-            {phase === 'resolve_draw' && drawnCard ? (
+          <div className={`g-drawn ${drawnCard && (phase === 'resolve_draw' || game.pending_action === 'khshaf_swap') ? 'has-card' : ''}`}>
+            {game.pending_action === 'khshaf_swap' && drawnCard ? (
+              <>
+                <div className="g-slot g-slot--drawn" data-flip={drawnCard.id}>
+                  <Card id={drawnCard.id} definitionId={cardInfo(drawnCard).definitionId} name={cardInfo(drawnCard).name} hidden={drawnCard.definition_id === HIDDEN_DEFINITION} interactive className="g-drawn__card" />
+                </div>
+                <span className="g-drawn__hint">{isActor ? 'المس كارت من كروتك عشان تبدّله بالكارت ده' : `${activePlayer?.name ?? 'اللاعب'} بيبدّل كارت بالخشاف`}</span>
+              </>
+            ) : phase === 'resolve_draw' && drawnCard ? (
               <>
                 <div className="g-slot g-slot--drawn" data-flip={drawnCard.id} data-flip-from={game.draw_source === 'discard' ? undefined : 'stock'}>
                   <Card id={drawnCard.id} definitionId={cardInfo(drawnCard).definitionId} name={cardInfo(drawnCard).name}
-                    hidden={roundNumber === 3 || drawnCard.definition_id === HIDDEN_DEFINITION}
+                    hidden={drawnCard.definition_id === HIDDEN_DEFINITION}
                     selectable={isActor && game.draw_source === 'stock'} draggable={isActor && game.draw_source === 'stock'} className="g-drawn__card"
                     onClick={isActor && game.draw_source === 'stock' ? discardDrawn : undefined}
                     onDragStart={isActor && game.draw_source === 'stock' ? () => setDraggingDrawn(true) : undefined} onDrop={handleDrawDrop} />
@@ -496,7 +558,23 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
           </div>
         </section>
 
-        <section className={`g-hand ${viewingOther ? 'is-other' : ''} ${draggingDrawn ? 'is-drop-target' : ''}`} aria-label="كروتك">
+        {roundBanner && ROUND_BANNERS[roundBanner] && (
+          <div className={`g-round g-round--${roundBanner}`} key={`rb${roundBanner}${game.dealt_at}`} role="status">
+            <span className="g-round__orn" aria-hidden="true">❖ ━━━ ✦ ━━━ ❖</span>
+            <strong>{ROUND_BANNERS[roundBanner].title}</strong>
+            <small>{ROUND_BANNERS[roundBanner].sub}</small>
+            <span className="g-round__orn g-round__orn--b" aria-hidden="true">❖ ━━━ ✦ ━━━ ❖</span>
+          </div>
+        )}
+        {fx && (
+          <div className={`g-fx g-fx--${fx.kind}`} key={fx.key} role="status" aria-live="assertive">
+            <i className="g-fx__ring" /><i className="g-fx__ring g-fx__ring--2" />
+            <strong>{fx.kind === 'block' ? '⛔ ' : '⚠ '}{fx.text}</strong>
+          </div>
+        )}
+        </div>
+
+        <section className={`g-hand ${viewingOther ? 'is-other' : ''} ${draggingDrawn ? 'is-drop-target' : ''} ${isActor && cardSelectable ? 'is-live' : ''} ${shake === 'hand' ? 'is-shake' : ''}`} aria-label="كروتك">
           <header className="g-hand__title">
             <strong>{viewingOther ? `كروت ${displayPlayer?.name}` : isActor ? handTitle : 'كروتك'}</strong>
             <small>{isActor && handActionLabel && phase !== 'turn' && phase !== 'resolve_draw' ? handActionLabel : `${hand.length} كروت`}</small>
@@ -504,12 +582,14 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
           <div className="g-hand__grid" style={{ '--n': Math.min(hand.length, 4) } as React.CSSProperties}>
             {hand.map((card, slot) => {
               const heavyPlayable = phase === 'heavy_choice' && game.heavy_pending_ids.includes(card.id);
-              const blindHeavyTry = phase === 'heavy_choice' && roundNumber === 3 && game.heavy_drawn_ids.includes(card.id);
-              const face = visibleHandCard(displayPlayerIndex, card) || (heavyPlayable && roundNumber !== 3);
+              const blindHeavyTry = false;
+              const face = visibleHandCard(displayPlayerIndex, card) || heavyPlayable;
               const info = cardInfo(card);
               const selectedNow = isActor && (phase === 'initial_peek' ? game.initial_peeked_ids.includes(card.id) : Number(game.selected_hand_slot) === slot);
               return (
-                <div className="g-slot" key={card.id} data-flip={card.id} data-flip-from={dealing ? 'stock' : undefined} data-flip-delay={slot * 70}>
+                <div className={`g-slot ${lookedByOther && game.looking_ids.includes(card.id) ? 'is-looked' : ''}`} key={card.id} data-flip={card.id} data-flip-from={dealing ? 'stock' : undefined} data-flip-delay={slot * 70}
+                  onClick={!(cardSelectable || heavyPlayable) ? () => blocked('hand', isActor ? 'مش وقت اختيار كارت من كروتك' : 'استنى دورك') : undefined}>
+                  {lookedByOther && game.looking_ids.includes(card.id) && <span className="g-eye g-eye--mine" aria-hidden="true">👁 {players[game.looking_by]?.name}</span>}
                   <Card id={card.id} definitionId={info.definitionId} name={info.name} hidden={!face} selected={selectedNow}
                     selectable={cardSelectable || (isActor && (heavyPlayable || blindHeavyTry))}
                     draggable={isActor && phase === 'turn' && !viewingOther}
@@ -522,11 +602,18 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
         </section>
 
         <footer className="g-dock">
-          <button className="g-basra" type="button" disabled={!(isActor && phase === 'turn' && Number(game.selected_hand_slot ?? -1) >= 0)}
-            aria-label="نفّذ بصرة بالكارت المحدد" onClick={() => { const slot = Number(game.selected_hand_slot ?? -1); if (slot >= 0) act(() => game.attempt_basra(slot)); }}>
-            <span aria-hidden="true">♠</span><b>بصرة</b><small>حدّد كارت</small>
-          </button>
+          {isActor && phase === 'resolve_draw' && game.draw_source === 'stock' && drawnCard ? (
+            <button className="g-basra g-basra--play" type="button" aria-label="ارمِ الكارت المسحوب" onClick={discardDrawn}>
+              <span aria-hidden="true">⤓</span><b>ارمِ الكارت</b><small>اللي سحبته</small>
+            </button>
+          ) : (
+            <button className={`g-basra ${canBasra ? 'is-ready' : 'is-locked'} ${shake === 'basra' ? 'is-shake' : ''}`} type="button" aria-disabled={!canBasra}
+              aria-label="نفّذ بصرة بالكارت المحدد" onClick={() => { if (!canBasra) { blocked('basra', basraHint === 'مش دورك' ? 'استنى دورك' : 'حدّد كارت من كروتك الأول'); return; } act(() => game.attempt_basra(selectedSlotNow)); }}>
+              <span aria-hidden="true">{canBasra ? '♠' : '🚫'}</span><b>بصرة</b><small>{basraHint}</small>
+            </button>
+          )}
           <ScrewHoldButton disabled={!(isActor && phase === 'turn' && game.can_declare_screw)} onHold={() => act(() => game.declare_screw())}
+            onBlocked={() => blocked('screw', !isActor ? 'استنى دورك' : roundProgress < 4 ? `سكرو بيتفتح بعد ${4 - roundProgress} دورات` : 'مش وقت سكرو')}
             hint={game.can_declare_screw ? 'اضغط مطولاً' : roundProgress < 4 ? `${roundProgress}/4 دورات` : 'مش دورك'} />
         </footer>
       </div>
@@ -554,7 +641,7 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
                 onClick={(event) => { if (event.detail === 0) revealPrivateCardByKeyboard(card.id); }} />;
             })}
           </div>
-          {isHeavyReveal && revealCards.length > 1 && roundNumber !== 3 && <button className="swipe-ready__fallback" type="button" onClick={() => hidePrivateReveal()}>كمّل من غير معاينة الباقي</button>}
+          {isHeavyReveal && revealCards.length > 1 && <button className="swipe-ready__fallback" type="button" onClick={() => hidePrivateReveal()}>كمّل من غير معاينة الباقي</button>}
           <p className="privacy-note">تأكد إن محدش جنبك شايف شاشتك.</p>
         </Modal>
       )}
@@ -578,8 +665,8 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
 
       {isActor && phase === 'look_swap_decision' && game.look_swap_seen_card && (
         <Modal title="شوف وبدّل">
-          <p className="modal-lead">{roundNumber === 3 ? 'الكارت المختار من الخصم ظاهر لك لحد ما تختار؛ كروتك أنت تفضل مخفية.' : 'الكارت اللي عاينته هيفضل ظاهر لحد ما تختار تاخده أو تبدّله.'}</p>
-          <div className="reveal-card-stage"><Card id={game.look_swap_seen_card.id} definitionId={cardInfo(game.look_swap_seen_card).definitionId} name={cardInfo(game.look_swap_seen_card).name} hidden={roundNumber === 3 && game.look_swap_first_target === game.turn_index} interactive className="reveal-card" /></div>
+          <p className="modal-lead">{'الكارت اللي عاينته هيفضل ظاهر لحد ما تختار تاخده أو تبدّله.'}</p>
+          <div className="reveal-card-stage"><Card id={game.look_swap_seen_card.id} definitionId={cardInfo(game.look_swap_seen_card).definitionId} name={cardInfo(game.look_swap_seen_card).name} hidden={false} interactive className="reveal-card" /></div>
           <div className="choice-grid choice-grid--two">
             <button className="choice-tile" type="button" onClick={() => act(() => game.choose_effect_option('take'))}><span>⇄</span><b>خده بكارت من عندك</b></button>
             <button className="choice-tile" type="button" onClick={() => act(() => game.choose_effect_option('exchange'))}><span>⇆</span><b>بدّله مع لاعب تاني</b></button>
@@ -589,9 +676,9 @@ export default function GameScreen({ game, snapshot, clockOffset, connected, onN
 
       {isActor && phase === 'khshaf_choice' && (
         <Modal title="الخَشّاف" className="modal-card--wide">
-          <p className="modal-lead">{roundNumber === 3 ? 'اختار كارتاً مقفولاً عشوائياً. الباقي بيرجع كومة السحب.' : 'اختار أحسن كارت ليك. التلاتة الباقيين هيرجعوا كومة السحب.'}</p>
+          <p className="modal-lead">{'اختار كارت واحد من الأربعة، وبعدها هتبدّله بكارت من كروتك. التلاتة الباقيين هيرجعوا كومة السحب.'}</p>
           <div className="khshaf-options">
-            {game.khshaf_options.map((card, index) => { const info = cardInfo(card); return <Card key={card.id} id={card.id} definitionId={info.definitionId} name={info.name} hidden={roundNumber === 3} selectable onClick={() => act(() => game.choose_khshaf_card(index))} className="reveal-card" />; })}
+            {game.khshaf_options.map((card, index) => { const info = cardInfo(card); return <Card key={card.id} id={card.id} definitionId={info.definitionId} name={info.name} selectable onClick={() => act(() => game.choose_khshaf_card(index))} className="reveal-card" />; })}
           </div>
         </Modal>
       )}
