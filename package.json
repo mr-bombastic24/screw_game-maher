@@ -1,0 +1,37 @@
+{
+  "name": "screw-card-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n server,web \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch server/index.ts --port 8787",
+    "dev:web": "vite",
+    "prebuild": "node scripts/generate-precache.mjs",
+    "build": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit && vite build && npm run build:server",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=server-dist/server.mjs",
+    "start": "node server-dist/server.mjs",
+    "simulate": "tsx scripts/simulate.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.0.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.0.0"
+  },
+  "description": "سكرو — لعبة ورق عربية أونلاين للأصدقاء",
+  "engines": {
+    "node": ">=20"
+  }
+}

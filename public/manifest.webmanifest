@@ -1,0 +1,28 @@
+{
+  "id": "./",
+  "name": "سكرو | لعبة الورق",
+  "short_name": "سكرو",
+  "description": "لعبة ورق عربية أونلاين للأصدقاء",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#100c0a",
+  "theme_color": "#100c0a",
+  "icons": [
+    {
+      "src": "./app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
